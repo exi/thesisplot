@@ -29,8 +29,10 @@
                   "confidence" :confidence
                   "bar" :bar
                   "line" :line
+                  "up" :up
+                  "down" :down
                   })
-(def default-grouping {:x :objectCount :y :runtime :groups [:setCount :useType :useClustering]})
+(def default-grouping {:x :objectCount :y :runtime :sort :up :groups [:setCount :useType :useClustering]})
 
 (defn take-csv
   "Takes file name and reads data."
@@ -82,7 +84,6 @@
   ( ->> (reduce
           (fn
             [Acc item]
-            ;(println item)
             (let [key (make-filter-key item attr)]
               (if (contains? Acc key)
                 (if ((get-comparator attr) (item attr) ((Acc key) attr))
@@ -151,7 +152,7 @@
        (dataset
          keyList
          (->> grouped-data
-              (sort-by (:x grouping))
+              (#(if (= (:sort grouping) :up) (sort-by (:x grouping) %)  (reverse (sort-by (:x grouping) %))))
               (sort-by :grouped)
               (maps-to-lists keyList)
               )
@@ -244,6 +245,7 @@
         x-text (JTextField. "bucketSize")
         y-text (JTextField. "runtime")
         groups-text (JTextField. "objectCount useClustering")
+        sort-text (JTextField. "up")
         update-button (JButton. "Update")
         width-text (JTextField. "1000")
         height-text (JTextField. "1000")
@@ -271,12 +273,13 @@
                 x (parse-keyword (.getText x-text))
                 y (parse-keyword (.getText y-text))
                 groups (parse-keywords (.getText groups-text))
+                s (parse-keyword (.getText sort-text))
                 ]
-            (reset! chart ((chart-creator-by-type t) f {:x x :y y :groups groups}))
+            (reset! chart ((chart-creator-by-type t) f {:x x :y y :sort s :groups groups}))
             (view @chart)
             ))))
     (doto frame
-      (.setLayout (GridLayout. 10 2 3 3))
+      (.setLayout (GridLayout. 11 2 3 3))
       (.add input-text)
       (.add (JLabel. "input file"))
       (.add type-text)
@@ -287,6 +290,8 @@
       (.add (JLabel. "y"))
       (.add groups-text)
       (.add (JLabel. "groups"))
+      (.add sort-text)
+      (.add (JLabel. "sort"))
       (.add update-button)
       (.add (JLabel. ""))
       (.add width-text)
