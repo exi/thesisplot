@@ -11,6 +11,6 @@
                  [org.clojars.weiqiu/debug-repl "0.4.0-SNAPSHOT"]
                  [swank-clojure "1.4.2"]
                  ]
-  :plugins [[lein-swank "1.4.5"]]
+  :plugins [[lein-swank "1.4.5"] [lein-kibit "0.0.8"]]
   :java-source-paths ["src"]
   :main thesisplot.core)

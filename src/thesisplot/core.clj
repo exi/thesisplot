@@ -4,14 +4,18 @@
 (import '(javax.swing JFrame JLabel JTextField JButton)
         '(java.awt.event ActionListener)
         '(java.awt GridLayout)
+        '(java.awt Color)
+        '(java.awt BasicStroke)
+        '(java.awt Font)
         '(thesisplot.core CustomRenderer))
 
+;(def csvd (map #(apply parse-item %) (rest (take-csv "results.csv"))))
 (def allKeys [:setCount :objectCount :bucketSize :useClustering :useType :useId :runtime :confidence :grouped])
 (def allKeysSet #{:setCount :objectCount :bucketSize :useClustering :useType :useId :runtime :confidence :grouped})
-(def allKeysMap {
-                  :setCount "sets"
+(def keysToNameMap {
+                  :setCount "snapshots"
                   :objectCount "objects"
-                  :bucketSize "bucket size"
+                  :bucketSize "bucket size(m)"
                   :useClustering "use clustering"
                   :useType "use types" 
                   :useId "use ids"
@@ -81,24 +85,23 @@
 
 (defn take-worst-by-attr
   [attr items]
-  ( ->> (reduce
-          (fn
-            [Acc item]
-            (let [key (make-filter-key item attr)]
-              (if (contains? Acc key)
-                (if ((get-comparator attr) (item attr) ((Acc key) attr))
-                  (assoc Acc key item)
-                  Acc
-                  )
-                (assoc Acc key item)
-                )
+  (map second
+    (reduce
+      (fn
+        [Acc item]
+        (let [key (make-filter-key item attr)]
+          (if (contains? Acc key)
+            (if ((get-comparator attr) (item attr) ((Acc key) attr))
+              (assoc Acc key item)
+              Acc
               )
+            (assoc Acc key item)
             )
-          {}
-          items
           )
-        (map second)
         )
+      {}
+      items
+      ))
   )
 
 (defmulti apply-group (fn [Acc spec] spec))
@@ -116,7 +119,8 @@
   (throw (IllegalArgumentException. (str "Wut?" a b))))
 
 (defn add-group [groupspec item]
-  (assoc-in item [:grouped] (apply str (interpose "-" (:strings (reduce apply-group {:item item :strings []} groupspec)))))
+  (assoc-in item [:grouped]
+            (clojure.string/join (interpose "-" (:strings (reduce apply-group {:item item :strings []} groupspec)))))
   )
 
 (defn add-grouping
@@ -129,13 +133,13 @@
    (group-and-filter default-grouping items))
   ([Groupspec items]
    (if (nil? Groupspec) (group-and-filter items)
-     (let [usedKeys (clojure.set/union #{(Groupspec :x)} #{(Groupspec :y)} (set (Groupspec :groups)))]
+     (let [usedKeys (clojure.set/union #{(:x Groupspec)} #{(:y Groupspec)} (set (:groups Groupspec)))]
        (let [toRemove (clojure.set/difference allKeysSet usedKeys)]
          [(->> items
                data-filter
               (map #(apply dissoc (into [%] (vec toRemove))))
               (take-worst-by-attr (Groupspec :y))
-              (add-grouping (Groupspec :groups))
+              (add-grouping (:groups Groupspec))
               )
           (vec (conj usedKeys :grouped))
           ]
@@ -167,16 +171,29 @@
   (group-data (rest (take-csv filename)) grouping)
   )
 
-(def csvd (map #(apply parse-item %) (rest (take-csv "results.csv"))))
+(defn change-axis-style
+  [axis]
+  (doto axis
+          (.setTickLabelPaint Color/black)
+          (.setLabelPaint Color/black)
+          (.setTickLabelFont (Font. "Serif" Font/BOLD 15))
+          (.setLabelFont (Font. "Serif" Font/BOLD 17))
+          )
+  )
 
 (defn set-bar-style
   [chart]
-  (let [plot (-> chart .getCategoryPlot) renderer (new CustomRenderer)]
-    (do
-      (doto plot (.setRenderer renderer))
-      chart
-    ))
-  )
+  (let [plot (.. chart (getCategoryPlot))]
+    (.. plot (setRenderer (CustomRenderer.)))
+    (.. plot (setRangeGridlinePaint Color/gray))
+    (.. plot (setRangeGridlineStroke (BasicStroke.)))
+    (.. plot (setBackgroundPaint Color/white))
+    (change-axis-style (.getDomainAxis plot))
+    (change-axis-style (.getRangeAxis plot))
+    (.. chart (getLegend) (setItemFont (Font. "Serif" Font/BOLD 17)))
+    )
+  chart
+)
 
 (defn create-bar-chart
   ([filename] (create-bar-chart filename default-grouping))
@@ -189,8 +206,8 @@
        :group-by (sel data :cols :grouped)
        :legend true
        :vertical false
-       :x-label (allKeysMap (:x grouping))
-       :y-label (allKeysMap (:y grouping))
+       :x-label (keysToNameMap (:x grouping))
+       :y-label (keysToNameMap (:y grouping))
        ))
      ))
    )
@@ -206,8 +223,8 @@
        (sel data :cols (:y grouping))
        :group-by (sel data :cols :grouped)
        :legend true
-       :x-label (allKeysMap (:x grouping))
-       :y-label (allKeysMap (:y grouping))
+       :x-label (keysToNameMap (:x grouping))
+       :y-label (keysToNameMap (:y grouping))
        )
      ))
    )
@@ -220,7 +237,7 @@
 
 (defn draw-graph
   [filename & {:keys [grouping]
-                :or {grouping default-grouping}}]
+               :or {grouping default-grouping}}]
     (view (create-bar-chart filename grouping))
   )
 
@@ -245,11 +262,11 @@
         x-text (JTextField. "bucketSize")
         y-text (JTextField. "runtime")
         groups-text (JTextField. "objectCount useClustering")
-        sort-text (JTextField. "up")
+        sort-text (JTextField. "down")
         update-button (JButton. "Update")
         width-text (JTextField. "1000")
-        height-text (JTextField. "1000")
-        file-text (JTextField. "out.png")
+        height-text (JTextField. "500")
+        file-text (JTextField. "1.png")
         save-button (JButton. "Save")
         ]
     (.addActionListener
@@ -306,15 +323,9 @@
     ))
   )
 
-(defn save-graph
-  [filename & {:keys [grouping outputfile width height]
-                :or {grouping default-grouping outputfile "out.png" width 1000 height 1000}}]
-    (save (create-bar-chart filename grouping) outputfile :width width :height height)
-  )
-
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]
   ;; work around dangerous default behaviour in Clojure
   (alter-var-root #'*read-eval* (constantly false))
-  (draw-graph-with-ui "results.csv"))
+  (draw-graph-with-ui))
