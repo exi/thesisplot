@@ -66,7 +66,7 @@
 
 (defn data-filter
   [items]
-  (filter #(and (true? (:useType %))), items)
+  (filter #(and (#{100 200 300 400} (:setCount %)) (not (#{0.02 0.04 0.06 0.08 0.2 0.4} (:bucketSize %))) ), items)
   )
 
 (defn make-filter-key
