@@ -7,20 +7,26 @@
         '(java.awt Color)
         '(java.awt BasicStroke)
         '(java.awt Font)
-        '(thesisplot.core CustomRenderer))
+        '(thesisplot.core CustomRenderer)
+        '(thesisplot.core CustomLineRenderer)
+        '(org.apache.batik.dom GenericDOMImplementation)
+        '(org.apache.batik.svggen SVGGraphics2D)
+        '(java.io FileOutputStream OutputStreamWriter)
+        '(java.awt.geom Rectangle2D$Double)
+        )
 
 ;(def csvd (map #(apply parse-item %) (rest (take-csv "results.csv"))))
 (def allKeys [:setCount :objectCount :bucketSize :useClustering :useType :useId :runtime :confidence :grouped])
 (def allKeysSet #{:setCount :objectCount :bucketSize :useClustering :useType :useId :runtime :confidence :grouped})
 (def keysToNameMap {
-                  :setCount "snapshots"
-                  :objectCount "objects"
-                  :bucketSize "bucket size(m)"
-                  :useClustering "use clustering"
-                  :useType "use types" 
-                  :useId "use ids"
-                  :runtime "runtime(ms)"
-                  :confidence "confidence"
+                  :setCount "Anzahl Objektmengen"
+                  :objectCount "Objekte pro Objektmenge"
+                  :bucketSize "Bucketgröße(m)"
+                  :useClustering "Mit Clustering"
+                  :useType "Mit Typen"
+                  :useId "Mit IDs"
+                  :runtime "Laufzeit(ms)"
+                  :confidence "Konfidenz"
                   })
 (def allKeysUsrMap {
                   "setCount" :setCount
@@ -66,7 +72,12 @@
 
 (defn data-filter
   [items]
-  (filter #(and (#{100 200 300 400} (:setCount %)) (not (#{0.02 0.04 0.06 0.08 0.2 0.4} (:bucketSize %))) ), items)
+  (filter #(and
+             (even? (:objectCount %))
+             ;(= (:bucketSize %) 0.05)
+             (> (:setCount %) 10)
+             (not (#{0.02 0.04 0.06 0.08 0.2 0.4} (:bucketSize %))))
+          items)
   )
 
 (defn make-filter-key
@@ -200,31 +211,51 @@
   ([filename grouping]
    (if (nil? grouping) (create-bar-chart filename)
      (let [data (get-data filename grouping)]
-     (set-bar-style (bar-chart
-       (sel data :cols (:x grouping))
-       (sel data :cols (:y grouping))
-       :group-by (sel data :cols :grouped)
-       :legend true
-       :vertical false
-       :x-label (keysToNameMap (:x grouping))
-       :y-label (keysToNameMap (:y grouping))
-       ))
+     (doto
+       (bar-chart
+         (sel data :cols (:x grouping))
+         (sel data :cols (:y grouping))
+         :group-by (sel data :cols :grouped)
+         :legend true
+         :vertical false
+         :x-label (keysToNameMap (:x grouping))
+         :y-label (keysToNameMap (:y grouping))
+         )
+       (set-bar-style)
+       )
      ))
    )
   )
+
+(defn set-line-style
+  [chart]
+  (let [plot (.. chart (getCategoryPlot))]
+    (.. plot (setRenderer (CustomLineRenderer.)))
+    (.. plot (setBackgroundPaint Color/white))
+    (.. plot (setRangeGridlinePaint Color/gray))
+    (.. plot (setRangeGridlineStroke (BasicStroke.)))
+    (change-axis-style (.getDomainAxis plot))
+    (change-axis-style (.getRangeAxis plot))
+    (.. chart (getLegend) (setItemFont (Font. "Serif" Font/BOLD 17)))
+    )
+  chart
+)
 
 (defn create-line-chart
   ([filename] (create-line-chart filename default-grouping))
   ([filename grouping]
    (if (nil? grouping) (create-line-chart filename)
      (let [data (get-data filename grouping)]
-     (line-chart
+     (doto (line-chart
        (sel data :cols (:x grouping))
        (sel data :cols (:y grouping))
        :group-by (sel data :cols :grouped)
        :legend true
        :x-label (keysToNameMap (:x grouping))
        :y-label (keysToNameMap (:y grouping))
+       )
+       (set-line-style)
+       (set-stroke :width 4)
        )
      ))
    )
@@ -257,16 +288,16 @@
                 :or {grouping default-grouping}}]
   (let [chart (atom ())
         frame (JFrame. "opts")
-        input-text (JTextField. "results.csv")
-        type-text (JTextField. "bar")
-        x-text (JTextField. "bucketSize")
+        input-text (JTextField. "results.csv.3")
+        type-text (JTextField. "line")
+        x-text (JTextField. "setCount")
         y-text (JTextField. "runtime")
         groups-text (JTextField. "objectCount useClustering")
-        sort-text (JTextField. "down")
+        sort-text (JTextField. "up")
         update-button (JButton. "Update")
         width-text (JTextField. "1000")
         height-text (JTextField. "500")
-        file-text (JTextField. "1.png")
+        file-text (JTextField. "1.svg")
         save-button (JButton. "Save")
         ]
     (.addActionListener
@@ -277,8 +308,22 @@
           (let [width (Integer/parseInt (.getText width-text))
                 height (Integer/parseInt (.getText height-text))
                 filename (.getText file-text)
+                svggen (SVGGraphics2D.
+                         (.createDocument
+                           (GenericDOMImplementation/getDOMImplementation)
+                           nil
+                           "svg"
+                           nil
+                           )
+                         )
+                outStream (FileOutputStream. filename)
+                out (OutputStreamWriter. outStream "UTF-8")
                 ]
-            (save @chart filename :width width :height height)))))
+            (.draw @chart svggen (Rectangle2D$Double. 0 0 width height))
+            (.stream svggen out true)
+            (.flush outStream)
+            (.close outStream)
+            ))))
     (.addActionListener
       update-button
       (reify ActionListener
